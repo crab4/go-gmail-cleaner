@@ -1,0 +1,30 @@
+
+credentials.json
+token.json
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts and coverage reports
+*.test
+*.out
+*.prof
+*.coverprofile
+profile.cov
+
+# Architecture independent build outputs (if you build to a bin/ directory)
+bin/
+dist/
+
+# Go workspaces (local development environments)
+go.work
+go.work.sum
+
+# Dependency directories (only needed if using 'go mod vendor')
+# vendor/
+
+# Local environment configuration variables
+.env
+.env.*

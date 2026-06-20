@@ -6,10 +6,15 @@ import (
 )
 
 func main() {
-	prompt := "Скажи 'Привет мир!' и больше ничего."
-	answer, err := askOllama(prompt)
+	srv, err := getGmailService()
 	if err != nil {
-		log.Fatalf("Ne ydalos obratitsya k ollama %v", err)
+		log.Fatalf("Не удалось подключиться к Gmail %v", err)
 	}
-	fmt.Println("response:", answer)
+
+	fmt.Println("Гмейл сервис готов")
+	ids, err := listMessageIds(srv, 10)
+	if err != nil {
+		log.Fatalf("Ошибка получения списка %v", err)
+	}
+	fmt.Printf("получено %d ID писем\n", len(ids))
 }

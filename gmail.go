@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
+	"github.com/crab4/gmail-cleaner/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
@@ -156,4 +158,88 @@ func listMessageIds(srv *gmail.Service, maxResult int64) ([]string, error) {
 	}
 
 	return ids, nil
+}
+
+func fetchEmails(srv *gmail.Service, ids []string, numWorkers int) ([]models.Email, error) {
+	//Канал контекст с таймаутом, чтобы в случае зависания грохалась
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	//Канал для передчи ID горутинкам. Не уверен в необходимости размерности здесь
+	idChan := make(chan string, len(ids))
+	resultChan := make(chan models.Email, len(ids))
+
+	var syncWaiter sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		syncWaiter.Add(1)
+		go func() {
+			defer syncWaiter.Done()
+			for id := range idChan {
+				email, err := getEmailById(srv, id)
+				if err != nil {
+					log.Printf("Ошибка при загрузке письма %s, %v", id, err)
+					continue
+				}
+				select {
+				case resultChan <- email:
+				case <-ctx.Done():
+					//Если контекст отмёнен, то закрываемся(подсказка себе любимому)
+					return
+				}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(idChan)
+		for _, id := range ids {
+			select {
+			case idChan <- id:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	go func() {
+		syncWaiter.Wait()
+		close(resultChan)
+	}()
+
+	emails := make([]models.Email, 0, len(ids))
+	for email := range resultChan {
+		emails = append(emails, email)
+	}
+
+	//Меня жутко бесит, что в го любую херню принято проверять. В данном случае проверяем, не закрыт ли уже контекст(ну мало ли, таймаут)
+	//Хотя мне кажется эти строки не нужны
+	if ctx.Err() != nil {
+		return emails, fmt.Errorf("Операция прервана:%w", ctx.Err())
+	}
+
+	return emails, nil
+
+}
+
+func getEmailById(srv *gmail.Service, id string) (models.Email, error) {
+	msg, err := srv.Users.Messages.Get("me", id).Format("full").Do()
+	if err != nil {
+		return models.Email{}, fmt.Errorf("Ошибка GET к gmail: %w", err)
+	}
+
+	subject := ""
+	snippet := msg.Snippet
+
+	for _, h := range msg.Payload.Headers {
+		if h.Name == "Subject" {
+			subject = h.Value
+			break
+		}
+	}
+
+	return models.Email{
+		ID:      id,
+		Subject: subject,
+		Snippet: snippet,
+	}, nil
 }

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crab4/gmail-cleaner/models"
@@ -51,4 +55,76 @@ func main() {
 		}
 		fmt.Printf("[%s] %s => %s\n", c.Email.ID, c.Email.Subject, status)
 	}
+
+	// Выделяем спамные письма
+	spamEmails := make([]models.ClassifiedEmail, 0)
+	for _, c := range classified {
+		if c.IsSpam {
+			spamEmails = append(spamEmails, c)
+		}
+	}
+
+	if len(spamEmails) == 0 {
+		fmt.Println("Спам не найден. Программа завершена.")
+		return
+	}
+
+	fmt.Println("\nОбнаружены спамные письма (можно удалить):")
+	for i, c := range spamEmails {
+		fmt.Printf("%d. [ID: %s] %s\n", i+1, c.Email.ID, c.Email.Subject)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Print("Введите номера писем для удаления через запятую (например: 1,3,5) или 'all' (все спам), 'none' (ничего): ")
+	scanner.Scan()
+	input := strings.TrimSpace(scanner.Text())
+	if err := scanner.Err(); err != nil {
+		log.Fatalf("Ошибка ввода: %v", err)
+	}
+
+	var selectedIDs []string
+
+	switch strings.ToLower(input) {
+	case "all":
+		for _, c := range spamEmails {
+			selectedIDs = append(selectedIDs, c.Email.ID)
+		}
+	case "none", "":
+		fmt.Println("Удаление отменено.")
+		return
+	default:
+		parts := strings.Split(input, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 1 || n > len(spamEmails) {
+				fmt.Printf("Некорректный номер '%s'. Пропускаем.\n", p)
+				continue
+			}
+			selectedIDs = append(selectedIDs, spamEmails[n-1].Email.ID)
+		}
+	}
+
+	if len(selectedIDs) == 0 {
+		fmt.Println("Не выбрано ни одного письма. Удаление отменено.")
+		return
+	}
+
+	fmt.Print("Точно удалить выбранные письма? (y/N): ")
+	scanner.Scan()
+	confirm := strings.TrimSpace(scanner.Text())
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Удаление отменено.")
+		return
+	}
+
+	fmt.Println("Начинаю удаление...")
+	for _, id := range selectedIDs {
+		if err := trashEmail(srv, id); err != nil {
+			log.Printf("Ошибка удаления письма %s: %v", id, err)
+			continue
+		}
+		fmt.Printf("Удалено письмо %s\n", id)
+	}
+	fmt.Println("Готово.")
 }

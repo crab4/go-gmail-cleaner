@@ -40,6 +40,9 @@ func getGmailService() (*gmail.Service, error) {
 		return nil, fmt.Errorf("Не собрался хттп клиент")
 	}
 
+	// Устанавливаем разумный таймаут для всех HTTP-запросов к Gmail API
+	client.Timeout = 30 * time.Second
+
 	srv, err := gmail.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		return nil, fmt.Errorf("Не поднялся сервис %w", err)
@@ -242,4 +245,10 @@ func getEmailById(srv *gmail.Service, id string) (models.Email, error) {
 		Subject: subject,
 		Snippet: snippet,
 	}, nil
+}
+
+// trashEmail перемещает письмо в корзину Gmail.
+func trashEmail(srv *gmail.Service, id string) error {
+	_, err := srv.Users.Messages.Trash("me", id).Do()
+	return err
 }
